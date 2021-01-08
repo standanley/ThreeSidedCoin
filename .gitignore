@@ -1,2 +1,8 @@
 # pycharm file
 .idea
+
+# python
+__pycache__
+
+# manim
+media

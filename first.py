@@ -23,9 +23,15 @@ class State():
     e_flip = mass * g * r
 
     def __init__(self):
-        self.v = 15
-        self.theta = 1.2
-        self.omega = 5
+        self.v = 19
+        self.theta = 2
+        self.omega = 3
+        # rests on corner
+        #self.v = 15
+        #self.theta = 1.2
+        #self.omega = 5
+        self.start_height = self.get_start_height()
+        self.energy = self.get_energy()
 
         # no real solutions to energy thing
         # self.v = 20
@@ -49,16 +55,16 @@ class State():
         ys = corners[1]
         return -min(ys)
 
+    def get_com_height(self, t):
+        return -0.5 * self.g * t ** 2 + self.v * t + self.start_height
+
     def get_pos_at_time(self, t):
-        start_height = self.get_start_height()
-        height = -0.5 * self.g * t ** 2 + self.v * t + start_height
+        height = self.get_com_height(t) #-0.5 * self.g * t ** 2 + self.v * t + self.start_height
         theta = self.theta + self.omega * t
         return height, theta
 
-    def get_com_height(self, t):
-        return -0.5 * self.g * t ** 2 + self.v * t + self.get_start_height()
-
     def get_height(self, t):
+        # height of lowest corner at time t
         theta = self.theta + t * self.omega
         # y = -abs(math.cos(theta) * self.h / 2) - abs(math.sin(theta) * self.w / 2)
         # ret = self.get_com_height(t) + y
@@ -101,6 +107,9 @@ class State():
 
         ts = np.linspace(t_min, t_max, 1000)
         ys = np.array([self.get_height(t) for t in ts])
+
+        assert ys[0] >= 0, "tmin not small enough; probably coming to rest on a corner"
+
         first_hit = np.where(ys < 0)[0][0]
         t_min2 = ts[first_hit - 1]
         t_max2 = ts[first_hit]
@@ -247,13 +256,39 @@ class State():
                                            interval=(1000 / fps))
         plt.show()
 
+def get_data():
+    d1 = State()
+    tmax = d1.collision_time() * 1.1
+    ts = np.linspace(0, tmax, 1000)
+    hs = [d1.get_height(t) for t in ts]
+    return ts, hs
 
-d1 = State()
-t = d1.collision_time()
-# d1.transition(t)
+ts, hs = get_data()
+print('COLLISIONTIME', ts[-1])
+print('MAXHEIGHT', max(hs))
+def lerp(x):
+    if x <= ts[0]:
+        return 0
+    elif x >= ts[-1]:
+        return 0
+    print(x)
+    print(ts[:10])
+    index = np.where(ts > x)[0][0]
+    return hs[index]
 
-# print(t)
-# d1.plot_at_time(t)
 
-d1.animate(0, 1000)
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    plt.plot(ts, hs)
+    plt.show()
+
+    d1 = State()
+    t = d1.collision_time()
+    # d1.transition(t)
+
+    # print(t)
+    # d1.plot_at_time(t)
+
+    d1.animate(0, 1000)
 
