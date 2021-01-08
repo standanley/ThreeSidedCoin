@@ -129,13 +129,14 @@ class State():
         return t
 
     # if the coin is turned theta radians from lying on the horizontal axis, what's the dot product of the floor
-    # normal and the direction from the contact point to the COM?
+    # normal and PERPENDICULAR TO the direction from the contact point to the COM?
+    # in other words, what percentage of impulse to the bottom corner goes to CCW rotation?
     def f(self, theta):
         # c1 = math.atan2(self.w, self.h)
         # return math.sin(c1 + theta)
         # that method only works for one corner
         cs = list(zip(*self.get_corners(0, theta)))
-        c = min((c[1], c) for c in cs)[1]
+        c = min((c[0], c) for c in cs)[1]
         return c[0] / self.r
 
     def transition(self, t):
@@ -143,41 +144,57 @@ class State():
         gamma = 0.5
 
         end_theta = self.theta + self.omega * t
-        end_height = self.get_com_height(t)
+        end_com_height = self.get_com_height(t)
         end_v = self.v + -self.g * t
+        end_omega = self.omega
 
         f = self.f(end_theta)
         # print('\nf:', f)
         # THIS IS THE OLD BROKEN VELOCITY VERSION
         # x = -(gamma+1)*(end_v + f*self.r*self.omega) / (1/self.mass + f**2 * self.r / self.moi)
-        alpha = self.moi / self.mass
-        a = 1 + f ** 2 / alpha
-        b = 2 * (end_v + self.omega * f)
-        c = (1 - gamma) * (end_v ** 2 + alpha * self.omega ** 2)
-        disc = b ** 2 - 4 * a * c
-        if disc < 0:
-            print('Weird things are happening')
-            disc = 0
-        y = (-b + math.sqrt(disc)) / (2 * a)
-        x = y * self.mass
 
-        new_v = end_v + x / self.mass
-        new_omega = self.omega + x * f / (self.moi)
+        # we want to find the quadratic equation for energy(impulse)
+        # amazingly, we know denergy(impulse)/dimpulse is just v_final(impulse)
+        a = 1/2*((1/self.mass) + (f**2/self.moi))
+        b = end_v + f*end_omega
+        c = 1/2*self.mass*end_v**2 + 1/2 * self.moi * end_omega**2
+
+        perfectly_inelastic_impulse = -b / (2*a)
+
+        # force should be up - note that this is equivalent to saying b (velocity) is down,
+        # which makes good physical sense
+        assert perfectly_inelastic_impulse > 0
+
+        # resulting energy after a perfectly inelastic collision
+        minimum_energy = a*perfectly_inelastic_impulse**2 + b*perfectly_inelastic_impulse + c
+
+        # of the energy put into the floor (excess above minimum_energy), we keep fraction gamma
+        new_energy = minimum_energy + gamma * (c - minimum_energy)
+        new_c = c - new_energy
+        impulse = (-b + math.sqrt(b**2 - 4*a*new_c)) / (2*a)
+
+
+        new_v = end_v + impulse / self.mass
+        new_omega = self.omega + impulse * f / (self.moi)
         new_theta = end_theta
 
-        print('x is', x)
+        print('expected new kinetic energy', new_energy)
+        print('impulse is', impulse)
+        print('caculated minimum kinetic energy', minimum_energy)
         print('energy before', self.get_energy())
         print('corner speed', end_v + f * self.omega * self.r, '(', end_v, ')')
-
-        print('check', a * y ** 2 + b * y + c)
+        print()
 
         self.v = new_v
         self.omega = new_omega
         self.theta = new_theta
+        self.start_height = self.get_start_height()
+        self.energy = self.get_energy()
 
+        print('potential energy after', self.start_height*self.mass*self.g)
         print('energy after', self.get_energy())
         print('corner speed', self.v + f * self.omega * self.r, '(', self.v, ')')
-
+        print('new kinetic energy', self.get_energy() - self.start_height*self.mass*self.g)
         if self.get_energy() < self.e_flip:
             print('Not enough energy to flip')
 
@@ -280,15 +297,15 @@ def lerp(x):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
-    plt.plot(ts, hs)
-    plt.show()
+    #plt.plot(ts, hs)
+    #plt.show()
 
     d1 = State()
     t = d1.collision_time()
-    # d1.transition(t)
+    d1.animate(0, 1000)
+    d1.transition(t)
 
     # print(t)
     # d1.plot_at_time(t)
 
-    d1.animate(0, 1000)
 
