@@ -19,13 +19,14 @@ class State():
     phi = math.atan2(h, w)
     mass = 1
     moi = mass * 1 / 12 * (3 * (w / 2) ** 2 + h ** 2)
+    #moi = mass * 1/12 * (w**2 + h**2) # box
 
     e_flip = mass * g * r
 
-    def __init__(self):
-        self.v = 19
-        self.theta = 2
-        self.omega = 3
+    def __init__(self, v, theta, omega):
+        self.v = v#19
+        self.theta = theta#2
+        self.omega = omega#3
         # rests on corner
         #self.v = 15
         #self.theta = 1.2
@@ -108,7 +109,12 @@ class State():
         ts = np.linspace(t_min, t_max, 1000)
         ys = np.array([self.get_height(t) for t in ts])
 
-        assert ys[0] >= 0, "tmin not small enough; probably coming to rest on a corner"
+        #assert ys[0] >= 0, "tmin not small enough; probably coming to rest on a corner"
+        if ys[0] < 0:
+            print('TMIN ISSUE')
+            # caller should special-case this
+            return 0
+            #return t_min
 
         first_hit = np.where(ys < 0)[0][0]
         t_min2 = ts[first_hit - 1]
@@ -116,15 +122,19 @@ class State():
 
         # print('Check a, b', self.get_height(t_min2), self.get_height(t_max2))
         # return 100
-        assert self.get_height(t_min2) >= 0
+        #assert self.get_height(t_min2) >= 0
         res = root_scalar(self.get_height, bracket=(t_min2, t_max2), x0=t_min2)
         t = res.root
 
-        # ts = np.linspace(t_min, t_max, 1000)
-        # ys = [self.get_height(t) for t in ts]
-        # plt.plot(ts, ys)
-        # plt.plot([t], [self.get_height(t)], '*')
-        # plt.show()
+        #ts = np.linspace(t_min, t*1.1+.5, 1000)
+        #ys = [self.get_height(t) for t in ts]
+        ##plt.figure()
+        #plt.plot(ts, ys)
+        #plt.plot([t], [self.get_height(t)], '*')
+        #plt.grid()
+        ##plt.ion()
+        #plt.show()
+
 
         return t
 
@@ -136,12 +146,26 @@ class State():
         # return math.sin(c1 + theta)
         # that method only works for one corner
         cs = list(zip(*self.get_corners(0, theta)))
-        c = min((c[0], c) for c in cs)[1]
+        c = min((c[1], c) for c in cs)[1]
         return c[0] / self.r
 
-    def transition(self, t):
+    def get_side(self, theta):
+        cutoff = math.atan2(self.w, self.h)
+        theta = theta % (math.pi*2)
+        if theta < cutoff:
+            return 'H'
+        elif theta < math.pi - cutoff:
+            return 'S'
+        elif theta < math.pi + cutoff:
+            return 'T'
+        elif theta < 2*math.pi - cutoff:
+            return 'S'
+        else:
+            return 'H'
+
+    def next_state(self, t):
         # assuming we hit the ground after t seconds, what's our status just after hitting the ground?
-        gamma = 0.5
+        gamma = 0.2
 
         end_theta = self.theta + self.omega * t
         end_com_height = self.get_com_height(t)
@@ -155,8 +179,8 @@ class State():
 
         # we want to find the quadratic equation for energy(impulse)
         # amazingly, we know denergy(impulse)/dimpulse is just v_final(impulse)
-        a = 1/2*((1/self.mass) + (f**2/self.moi))
-        b = end_v + f*end_omega
+        a = 1/2*((1/self.mass) + ((f*self.r)**2/self.moi))
+        b = end_v + (f*self.r)*end_omega
         c = 1/2*self.mass*end_v**2 + 1/2 * self.moi * end_omega**2
 
         perfectly_inelastic_impulse = -b / (2*a)
@@ -172,31 +196,32 @@ class State():
         new_energy = minimum_energy + gamma * (c - minimum_energy)
         new_c = c - new_energy
         impulse = (-b + math.sqrt(b**2 - 4*a*new_c)) / (2*a)
+        #print('energy into floor', c-minimum_energy)
+        #print('Kinetic energy before', c)
+        #print('Kinetic energy after (desired)', new_energy)
 
 
         new_v = end_v + impulse / self.mass
-        new_omega = self.omega + impulse * f / (self.moi)
+        new_omega = self.omega + impulse * f * self.r / (self.moi)
         new_theta = end_theta
 
-        print('expected new kinetic energy', new_energy)
-        print('impulse is', impulse)
-        print('caculated minimum kinetic energy', minimum_energy)
-        print('energy before', self.get_energy())
-        print('corner speed', end_v + f * self.omega * self.r, '(', end_v, ')')
-        print()
-
-        self.v = new_v
-        self.omega = new_omega
-        self.theta = new_theta
-        self.start_height = self.get_start_height()
-        self.energy = self.get_energy()
-
-        print('potential energy after', self.start_height*self.mass*self.g)
-        print('energy after', self.get_energy())
-        print('corner speed', self.v + f * self.omega * self.r, '(', self.v, ')')
-        print('new kinetic energy', self.get_energy() - self.start_height*self.mass*self.g)
         if self.get_energy() < self.e_flip:
-            print('Not enough energy to flip')
+            side = self.get_side(new_theta)
+            return side
+
+        s = State(new_v, new_theta, new_omega)
+        #print('Kinetic energy after (calculated)', s.energy - s.get_start_height()*s.mass*s.g)
+        #print('New V', s.v + s.f(s.theta)*s.omega*self.r)
+        #print(s.v, s.f(s.theta), s.omega)
+        #print()
+
+        #print(s.get_corners(*s.get_pos_at_time(0))[1])
+        #print(s.get_corners(*s.get_pos_at_time(1e-12))[1])
+        #print(s.get_corners(*s.get_pos_at_time(1e-9))[1])
+        #print(s.get_corners(*s.get_pos_at_time(1e-6))[1])
+
+
+        return s
 
     def plot_at_time(self, t):
         height = self.get_com_height(t)
@@ -244,43 +269,53 @@ class State():
 
         plt.show()
 
-    def animate(self, t_start, t_stop):
+    @classmethod
+    def animate(cls, state, t_start, t_stop):
         fig1 = plt.figure()
 
         line, = plt.plot([], [], '-')
         plt.xlim(-10, 10)
         plt.ylim(0, 20)
 
-        self.t_tr = self.collision_time()
-        self.t_tr_total = 0
+        cls.state = state
+        cls.t_tr = cls.state.collision_time()
+        cls.t_tr_total = 0
 
         def update_line(t):
-            if t >= self.t_tr_total + self.t_tr:
-                self.transition(self.t_tr)
-                self.t_tr_total += self.t_tr
-                self.t_tr = self.collision_time()
-            height, theta = self.get_pos_at_time(t - self.t_tr_total)
-            xs, ys = self.get_corners(height, theta)
+            if t >= cls.t_tr_total + cls.t_tr:
+                # TODO how to update this? probably want a static function
+                cls.state = cls.state.next_state(cls.t_tr)
+                cls.t_tr_total += cls.t_tr
+                cls.t_tr = cls.state.collision_time()
+            height, theta = cls.state.get_pos_at_time(t - cls.state.t_tr_total)
+            xs, ys = cls.state.get_corners(height, theta)
             xs.append(xs[0])
             ys.append(ys[0])
             line.set_data((xs, ys))
             return line,
 
         fps = 30
-        speed = 1
+        speed = 2
         line_ani = animation.FuncAnimation(fig1, update_line,
                                            np.linspace(t_start, t_stop, int((t_stop - t_start) * fps)) * speed,
                                            interval=(1000 / fps))
         plt.show()
 
-def get_data():
-    d1 = State()
-    tmax = d1.collision_time() * 1.1
-    ts = np.linspace(0, tmax, 1000)
-    hs = [d1.get_height(t) for t in ts]
-    return ts, hs
+    def get_data(self):
+        tmax = self.collision_time() * 1.1
+        ts = np.linspace(0, tmax, 1000)
+        hs = [self.get_height(t) for t in ts]
+        return ts, hs
 
-ts, hs = get_data()
+    @classmethod
+    def get_result(cls, state):
+        while type(state) == State:
+            t = state.collision_time()
+            state = state.next_state(t)
+        return state
+
+d1 = State(19, 2, 3)
+ts, hs = d1.get_data()
 print('COLLISIONTIME', ts[-1])
 print('MAXHEIGHT', max(hs))
 def lerp(x):
@@ -300,10 +335,23 @@ if __name__ == '__main__':
     #plt.plot(ts, hs)
     #plt.show()
 
-    d1 = State()
-    t = d1.collision_time()
-    d1.animate(0, 1000)
-    d1.transition(t)
+    #d1 = State(15, .02 + math.pi/2, 0)
+    #d1 = State(3, math.pi/4, 1.1)
+
+    for i in range(45):
+        d = State(4, 8*i*math.pi/180, 0)
+        print(8*i, State.get_result(d))
+    exit()
+
+    d1 = State(3, 108*math.pi/180, 0)
+
+    #for i in range(10):
+    #    t = d1.collision_time()
+    #    d1 = d1.next_state(t)
+    #exit()
+
+    State.animate(d1, 0, 1000)
+    #d2 = d1.next_state(t)
 
     # print(t)
     # d1.plot_at_time(t)
